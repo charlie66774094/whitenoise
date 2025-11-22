@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>沉浸自然 - 修复版</title>
+    <style>
+        :root { --accent: #a5b4fc; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            background-color: #0f172a;
+            height: 100vh; width: 100vw;
+            overflow: hidden;
+            display: flex; justify-content: center; align-items: center;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+            color: white;
+            perspective: 1000px;
+        }
+
+        /* 1. 流动光斑背景 (营造通透感的关键) */
+        .ambient-bg {
+            position: absolute; inset: 0; z-index: 0; overflow: hidden;
+        }
+        .orb {
+            position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.6;
+            animation: float 10s infinite ease-in-out alternate;
+        }
+        .orb-1 { width: 300px; height: 300px; background: #4338ca; top: -50px; left: -50px; }
+        .orb-2 { width: 250px; height: 250px; background: #059669; bottom: -50px; right: -50px; animation-delay: -5s; }
+        .orb-3 { width: 150px; height: 150px; background: #be185d; top: 40%; left: 40%; filter: blur(60px); opacity: 0.4; animation: float 15s infinite reverse; }
+        @keyframes float { from { transform: translate(0,0); } to { transform: translate(30px, 50px); } }
+
+        /* 2. 背景粒子 Canvas (雪/雨/气泡) */
+        #bg-canvas { position: absolute; inset: 0; z-index: 1; }
+
+        /* 3. 3D 容器 */
+        .scene {
+            position: relative; z-index: 10;
+            width: 90%; max-width: 360px;
+            height: 80vh; max-height: 680px;
+            transform-style: preserve-3d;
+            transition: transform 0.1s linear;
+        }
+
+        /* 4. 磨砂玻璃卡片 */
+        .glass-card {
+            position: absolute; inset: 0;
+            border-radius: 32px;
+            /* 极透背景 */
+            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.01) 50%, rgba(255,255,255,0.05) 100%);
+            backdrop-filter: blur(20px) saturate(120%);
+            -webkit-backdrop-filter: blur(20px) saturate(120%);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15), 0 20px 40px rgba(0,0,0,0.4);
+            overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+
+        /* 噪点纹理 */
+        .noise {
+            position: absolute; inset: 0; opacity: 0.07; pointer-events: none; z-index: 2;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            mix-blend-mode: overlay;
+        }
+
+        /* 物理水滴层 (仅雨天显示在玻璃上) */
+        #drops-canvas {
+            position: absolute; inset: 0; z-index: 3; pointer-events: none;
+            transition: opacity 1s; opacity: 0;
+        }
+
+        /* 内容布局 */
+        .content {
+            position: relative; z-index: 5; flex: 1;
+            display: flex; flex-direction: column; padding: 30px 24px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transform: translateZ(20px);
+        }
+
+        .header { display: flex; justify-content: space-between; }
+        .header h1 { font-size: 24px; font-weight: 600; letter-spacing: 1px; }
+        .live { font-size: 11px; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 20px; }
+        .dot { width: 6px; height: 6px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80; }
+
+        .center { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 20px; }
+        .temp { font-size: 82px; font-weight: 200; line-height: 1; position: relative; }
+        .temp span { position: absolute; font-size: 30px; top: 10px; right: -20px; }
+        .mode-txt { font-size: 20px; letter-spacing: 6px; margin-top: 10px; opacity: 0.9; }
+
+        .controls {
+            background: rgba(0,0,0,0.2); padding: 20px; border-radius: 24px;
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .btns { display: flex; justify-content: space-between; margin-bottom: 20px; padding: 0 10px; }
+        .btn {
+            width: 44px; height: 44px; border-radius: 50%; border: none; background: transparent;
+            color: rgba(255,255,255,0.4); cursor: pointer; transition: 0.3s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .btn.active { background: rgba(255,255,255,0.15); color: white; transform: scale(1.1); box-shadow: 0 0 15px rgba(255,255,255,0.1); }
+        .btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+        .play-bar { display: flex; align-items: center; gap: 15px; }
+        .track { width: 80px; }
+        .track-lbl { font-size: 9px; opacity: 0.5; letter-spacing: 1px; }
+        .track-val { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        .slider { flex: 1; display: flex; align-items: center; }
+        input[type=range] { width: 100%; -webkit-appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%; background: white; margin-top: -4.5px; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+        .toggle { width: 40px; height: 40px; border-radius: 50%; background: white; color: #0f172a; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+
+        /* 启动页 */
+        #start { position: fixed; inset: 0; z-index: 999; background: rgba(15,23,42,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; transition: 0.5s; }
+        .go-btn { margin-top: 20px; padding: 12px 36px; background: white; border: none; border-radius: 30px; font-weight: 600; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <canvas id="bg-canvas"></canvas>
+
+    <div id="start">
+        <h2 style="font-weight:200; letter-spacing:4px;">NATURE</h2>
+        <button class="go-btn" id="init">开启体验</button>
+    </div>
+
+    <div class="scene" id="scene">
+        <div class="glass-card">
+            <div class="noise"></div>
+            <!-- 玻璃上的水珠 (仅雨天) -->
+            <canvas id="drops-canvas"></canvas>
+
+            <div class="content">
+                <div class="header">
+                    <h1>自然界</h1>
+                    <div class="live"><div class="dot"></div>Live</div>
+                </div>
+
+                <div class="center">
+                    <div class="temp" id="temp">-3<span>°</span></div>
+                    <div class="mode-txt" id="label">静谧飘雪</div>
+                </div>
+
+                <div class="controls">
+                    <div class="btns">
+                        <button class="btn active" onclick="setMode('snow')">
+                            <svg viewBox="0 0 24 24"><path d="M12,2L13.5,6.5L18,7.5L15,10.5L16,15L12,13L8,15L9,10.5L6,7.5L10.5,6.5L12,2M12,22L10.5,17.5L6,16.5L9,13.5L8,9L12,11L16,9L15,13.5L18,16.5L13.5,17.5L12,22Z"/></svg>
+                        </button>
+                        <button class="btn" onclick="setMode('rain')">
+                            <svg viewBox="0 0 24 24"><path d="M9,12C9.5,12 10,12.2 10.4,12.6L12,14.2L13.6,12.6C14,12.2 14.5,12 15,12C16.1,12 17,12.9 17,14C17,14.5 16.8,15 16.4,15.4L13.4,18.4C12.6,19.2 11.4,19.2 10.6,18.4L7.6,15.4C7.2,15 7,14.5 7,14C7,12.9 7.9,12 9,12M5,6C5,3.8 7.2,2 10,2C12.3,2 14.2,3.3 14.8,5.1C15.1,5 15.5,5 16,5C18.8,5 21,7.2 21,10C21,12.8 18.8,15 16,15H15V13H16C17.7,13 19,11.7 19,10C19,8.3 17.7,7 16,7H14.2L13.9,6.1C13.4,4.3 11.8,3 10,3C7.8,3 6,4.8 6,7C6,7.5 6.1,8 6.3,8.5L5.3,9.2C5.1,8.5 5,7.8 5,7V6Z"/></svg>
+                        </button>
+                        <button class="btn" onclick="setMode('waves')">
+                            <svg viewBox="0 0 24 24"><path d="M20.6,19C19.7,19.4 18.7,19.4 17.9,19C17,18.6 16.1,18.6 15.2,19C14.4,19.4 13.4,19.4 12.6,19C11.7,18.6 10.8,18.6 9.9,19C9.1,19.4 8.1,19.4 7.3,19C6.4,18.6 5.5,18.6 4.6,19L4.2,17.5C4.8,17.2 5.5,17.2 6.1,17.5C7,17.9 7.9,17.9 8.8,17.5C9.6,17.1 10.6,17.1 11.4,17.5C12.3,17.9 13.2,17.9 14.1,17.5C14.9,17.1 15.9,17.1 16.7,17.5C17.6,17.9 18.5,17.9 19.4,17.5L19.8,19C19.5,19 19.3,19 19,19H20.6M2,12C2,12 5,15 9,14C13,13 16,10 22,12M2,8C2,8 5,11 9,10C13,9 16,6 22,8"/></svg>
+                        </button>
+                    </div>
+
+                    <div class="play-bar">
+                        <div class="track">
+                            <div class="track-lbl">GENERATING</div>
+                            <div class="track-val" id="s-name">Pink Noise</div>
+                        </div>
+                        <div class="slider">
+                            <input type="range" min="0" max="1" step="0.01" value="0.5" id="vol">
+                        </div>
+                        <button class="toggle" id="play">
+                            <svg id="i-play" viewBox="0 0 24 24" width="18" height="18" fill="#0f172a"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
+                            <svg id="i-pause" viewBox="0 0 24 24" width="18" height="18" fill="#0f172a" style="display:none"><path d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let mode = 'snow'; // snow, rain, waves
+        let isPlaying = false;
+        let audioCtx, masterGain, oscs = [];
+
+        // === 1. 3D 视差 ===
+        const scene = document.getElementById('scene');
+        function tilt(x, y) {
+            const cx = window.innerWidth/2;
+            const cy = window.innerHeight/2;
+            // 限制最大旋转 8 度
+            const rx = ((y-cy)/cy) * -8;
+            const ry = ((x-cx)/cx) * 8;
+            scene.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+        }
+        document.addEventListener('mousemove', e => tilt(e.clientX, e.clientY));
+        document.addEventListener('touchmove', e => { e.preventDefault(); tilt(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+
+        // === 2. 音频生成 (Audio API) ===
+        function initAudio() {
+            if(audioCtx) return;
+            const AC = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AC();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.5;
+            masterGain.connect(audioCtx.destination);
+        }
+
+        function noiseBuffer() {
+            const s = audioCtx.sampleRate * 2;
+            const b = audioCtx.createBuffer(1, s, audioCtx.sampleRate);
+            const d = b.getChannelData(0);
+            for(let i=0; i<s; i++) d[i] = Math.random()*2-1; // 简单白噪音，后面用滤波器处理
+            return b;
+        }
+
+        function playSound(m) {
+            stopSound();
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+
+            const src = audioCtx.createBufferSource();
+            src.buffer = noiseBuffer();
+            src.loop = true;
+            const filter = audioCtx.createBiquadFilter();
+            const gain = audioCtx.createGain();
+
+            if(m === 'snow') {
+                // 雪：低沉粉红噪音感
+                filter.type = 'lowpass'; filter.frequency.value = 200;
+                src.connect(filter).connect(masterGain);
+            } else if(m === 'rain') {
+                // 雨：中频
+                filter.type = 'lowpass'; filter.frequency.value = 800;
+                src.connect(filter).connect(masterGain);
+            } else if(m === 'waves') {
+                // 浪：带 LFO 的低频
+                filter.type = 'lowpass'; filter.frequency.value = 400;
+                const lfo = audioCtx.createOscillator();
+                lfo.frequency.value = 0.15; 
+                const lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 0.3;
+                const baseGain = audioCtx.createGain();
+                baseGain.gain.value = 0.2;
+                lfo.connect(baseGain.gain);
+                lfo.start();
+                src.connect(filter).connect(baseGain).connect(masterGain);
+                oscs.push(lfo);
+            }
+            src.start();
+            oscs.push(src);
+        }
+
+        function stopSound() {
+            oscs.forEach(n => { try{n.stop()}catch(e){} try{n.disconnect()}catch(e){} });
+            oscs = [];
+        }
+
+        // === 3. 视觉系统 (核心修复点) ===
+        const bgCv = document.getElementById('bg-canvas');
+        const dropsCv = document.getElementById('drops-canvas');
+        const bgCtx = bgCv.getContext('2d');
+        const dropsCtx = dropsCv.getContext('2d');
+
+        let w, h, particles = [], glassDrops = [];
+
+        function resize() {
+            w = window.innerWidth; h = window.innerHeight;
+            bgCv.width = w; bgCv.height = h;
+            // 玻璃水滴画布匹配卡片大小
+            const card = document.querySelector('.glass-card');
+            dropsCv.width = card.clientWidth; dropsCv.height = card.clientHeight;
+            initParticles(mode); // 重置粒子
+        }
+        window.addEventListener('resize', resize);
+
+        // 背景粒子类 (修复：根据模式绘制不同形状)
+        class Particle {
+            constructor() { this.init(); }
+            init() {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.z = Math.random() * 0.5 + 0.5; // 深度
+                
+                if(mode === 'snow') {
+                    this.v = Math.random() * 1 + 0.5; 
+                    this.s = Math.random() * 2 + 1;
+                } else if(mode === 'rain') {
+                    this.v = Math.random() * 15 + 20; // 雨很快
+                    this.len = Math.random() * 20 + 10; // 雨丝长度
+                } else if(mode === 'waves') {
+                    this.v = Math.random() * 0.5 + 0.2;
+                    this.s = Math.random() * 3;
+                }
+            }
+            update() {
+                if(mode === 'waves') {
+                    this.y -= this.v; // 气泡向上
+                    this.x += Math.sin(this.y * 0.02) * 0.2;
+                    if(this.y < -10) this.init(), this.y = h + 10;
+                } else {
+                    this.y += this.v; // 雪/雨向下
+                    if(mode === 'snow') this.x += Math.sin(this.y * 0.01) * 0.5;
+                    if(this.y > h) this.init(), this.y = -10;
+                }
+            }
+            draw() {
+                bgCtx.globalAlpha = 0.3 * this.z;
+                bgCtx.fillStyle = 'white';
+                bgCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+
+                if(mode === 'rain') {
+                    // 画雨丝 (线条)
+                    bgCtx.lineWidth = 1;
+                    bgCtx.beginPath();
+                    bgCtx.moveTo(this.x, this.y);
+                    bgCtx.lineTo(this.x, this.y + this.len);
+                    bgCtx.stroke();
+                } else {
+                    // 画雪/气泡 (圆)
+                    bgCtx.beginPath();
+                    bgCtx.arc(this.x, this.y, this.s * this.z, 0, Math.PI*2);
+                    bgCtx.fill();
+                }
+            }
+        }
+
+        // 玻璃表面物理水滴 (仅雨天)
+        class GlassDrop {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * dropsCv.width;
+                this.y = Math.random() * dropsCv.height;
+                this.r = 0; 
+                this.maxR = Math.random() * 4 + 2;
+                this.fall = false;
+                this.v = 0;
+            }
+            update() {
+                if(this.r < this.maxR) this.r += 0.02;
+                else if(Math.random() < 0.005) this.fall = true;
+                
+                if(this.fall) {
+                    this.v += 0.2; this.y += this.v; this.r -= 0.01;
+                }
+                if(this.y > dropsCv.height+10 || this.r <= 0) this.reset();
+            }
+            draw() {
+                if(this.r <= 0) return;
+                dropsCtx.beginPath();
+                dropsCtx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+                // 阴影
+                dropsCtx.fillStyle = 'rgba(0,0,0,0.2)'; dropsCtx.fill();
+                // 高光 (透镜效果)
+                const g = dropsCtx.createLinearGradient(this.x, this.y-this.r, this.x, this.y+this.r);
+                g.addColorStop(0, 'rgba(255,255,255,0.2)');
+                g.addColorStop(1, 'transparent');
+                dropsCtx.fillStyle = g; dropsCtx.fill();
+                // 亮点
+                dropsCtx.beginPath(); dropsCtx.arc(this.x-this.r*0.3, this.y-this.r*0.3, this.r*0.25, 0, Math.PI*2);
+                dropsCtx.fillStyle = 'white'; dropsCtx.fill();
+            }
+        }
+
+        function initParticles(m) {
+            particles = [];
+            let count = (m === 'rain') ? 150 : 80; 
+            for(let i=0; i<count; i++) particles.push(new Particle());
+            
+            // 玻璃水珠只在雨天初始化
+            glassDrops = [];
+            if(m === 'rain') {
+                for(let i=0; i<40; i++) glassDrops.push(new GlassDrop());
+            }
+        }
+
+        function loop() {
+            bgCtx.clearRect(0,0,w,h);
+            dropsCtx.clearRect(0,0,dropsCv.width, dropsCv.height);
+            
+            particles.forEach(p => { p.update(); p.draw(); });
+
+            if(mode === 'rain') {
+                dropsCv.style.opacity = 1;
+                glassDrops.forEach(d => { d.update(); d.draw(); });
+            } else {
+                dropsCv.style.opacity = 0;
+            }
+            requestAnimationFrame(loop);
+        }
+
+        // === 4. 交互 ===
+        const btns = document.querySelectorAll('.btn');
+        const uiTemp = document.getElementById('temp');
+        const uiLabel = document.getElementById('label');
+        const uiName = document.getElementById('s-name');
+
+        function setMode(m) {
+            mode = m;
+            initParticles(m); // 切换时重置视觉
+            
+            btns.forEach(b => b.classList.remove('active'));
+            if(m === 'snow') {
+                btns[0].classList.add('active');
+                uiTemp.innerHTML = '-3<span>°</span>'; uiLabel.innerText = '静谧飘雪'; uiName.innerText = 'Filtered Noise (Snow)';
+            } else if(m === 'rain') {
+                btns[1].classList.add('active');
+                uiTemp.innerHTML = '12<span>°</span>'; uiLabel.innerText = '雨打窗棂'; uiName.innerText = 'White Noise (Rain)';
+            } else if(m === 'waves') {
+                btns[2].classList.add('active');
+                uiTemp.innerHTML = '24<span>°</span>'; uiLabel.innerText = '海浪潮汐'; uiName.innerText = 'Modulated (Ocean)';
+            }
+            if(isPlaying) playSound(m);
+        }
+
+        document.getElementById('init').onclick = () => {
+            document.getElementById('start').style.opacity = 0;
+            setTimeout(()=>document.getElementById('start').remove(), 500);
+            resize(); 
+            loop();
+            initAudio(); playSound('snow'); isPlaying = true;
+            document.getElementById('i-play').style.display = 'none';
+            document.getElementById('i-pause').style.display = 'block';
+        };
+
+        document.getElementById('play').onclick = () => {
+            if(!audioCtx) initAudio();
+            isPlaying = !isPlaying;
+            if(isPlaying) {
+                playSound(mode);
+                document.getElementById('i-play').style.display = 'none';
+                document.getElementById('i-pause').style.display = 'block';
+            } else {
+                if(audioCtx) audioCtx.suspend();
+                document.getElementById('i-play').style.display = 'block';
+                document.getElementById('i-pause').style.display = 'none';
+            }
+        };
+        
+        document.getElementById('vol').oninput = e => { if(masterGain) masterGain.gain.value = e.target.value; };
+
+    </script>
+</body>
+</html>
