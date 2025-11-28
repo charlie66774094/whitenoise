@@ -3,7 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#a5b4fc">
     <title>沉浸自然 - 修复版</title>
+    
+    <!-- PWA manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- iOS Safari PWA支持 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="沉浸自然">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
     <style>
         :root { --accent: #a5b4fc; }
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -117,6 +128,19 @@
         /* 启动页 */
         #start { position: fixed; inset: 0; z-index: 999; background: rgba(15,23,42,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; transition: 0.5s; }
         .go-btn { margin-top: 20px; padding: 12px 36px; background: white; border: none; border-radius: 30px; font-weight: 600; letter-spacing: 1px; }
+        
+        /* 安装提示 */
+        #install-prompt {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(255,255,255,0.15); backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2); border-radius: 20px;
+            padding: 12px 20px; z-index: 1000; display: none;
+            color: white; font-size: 14px;
+        }
+        #install-prompt button {
+            background: white; color: #0f172a; border: none; border-radius: 20px;
+            padding: 6px 12px; margin-left: 10px; font-weight: 600; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -181,12 +205,59 @@
             </div>
         </div>
     </div>
+    
+    <div id="install-prompt">
+        安装应用以获得更好的体验
+        <button id="install-btn">安装</button>
+    </div>
 
     <script>
         // 全局变量
         let mode = 'snow'; // snow, rain, waves
         let isPlaying = false;
         let audioCtx, masterGain, oscs = [];
+        let deferredPrompt;
+
+        // === PWA 安装提示 ===
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // 阻止默认安装提示
+            e.preventDefault();
+            // 保存事件以便稍后触发
+            deferredPrompt = e;
+            // 显示自定义安装提示
+            const installPrompt = document.getElementById('install-prompt');
+            installPrompt.style.display = 'block';
+            
+            // 安装按钮点击事件
+            document.getElementById('install-btn').addEventListener('click', () => {
+                // 隐藏提示
+                installPrompt.style.display = 'none';
+                // 触发安装提示
+                deferredPrompt.prompt();
+                // 等待用户响应
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('用户接受了安装提示');
+                    } else {
+                        console.log('用户拒绝了安装提示');
+                    }
+                    deferredPrompt = null;
+                });
+            });
+        });
+
+        // === 注册 Service Worker ===
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((registration) => {
+                        console.log('SW 注册成功: ', registration.scope);
+                    })
+                    .catch((registrationError) => {
+                        console.log('SW 注册失败: ', registrationError);
+                    });
+            });
+        }
 
         // === 1. 3D 视差 ===
         const scene = document.getElementById('scene');
@@ -409,7 +480,7 @@
                 uiTemp.innerHTML = '-3<span>°</span>'; uiLabel.innerText = '静谧飘雪'; uiName.innerText = 'Filtered Noise (Snow)';
             } else if(m === 'rain') {
                 btns[1].classList.add('active');
-                uiTemp.innerHTML = '12<span>°</span>'; uiLabel.innerText = '雨打窗棂'; uiName.innerText = 'White Noise (Rain)';
+                uiTemp.innerHTML = '12<span>°</span>'; uiLabel.innerText = '雨打窗棂棂'; uiName.innerText = 'White Noise (Rain)';
             } else if(m === 'waves') {
                 btns[2].classList.add('active');
                 uiTemp.innerHTML = '24<span>°</span>'; uiLabel.innerText = '海浪潮汐'; uiName.innerText = 'Modulated (Ocean)';
